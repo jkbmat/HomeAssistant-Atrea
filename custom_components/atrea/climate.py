@@ -429,7 +429,11 @@ class AtreaDevice(ClimateEntity):
                 == AtreaProgram.WEEKLY
             ):
                 self.atrea.setProgram(AtreaProgram.TEMPORARY)
-            self.atrea.setPower(fan_percent)
+            # Bypass pyatrea.setPower which silently rejects values < 12 in v0.9.9.
+            # Call the two register writes setPower would have made — these are the
+            # R_5 series H10510=4 register codes for mode+level.
+            self.atrea.setCommand("H10708", fan_percent)
+            self.atrea.setCommand("H01020", fan_percent)
 
             self.updatePending = True
             await self.hass.async_add_executor_job(self.atrea.exec)
@@ -460,7 +464,9 @@ class AtreaDevice(ClimateEntity):
             old_value = 0
         new_value = transition_fan_value(old_value, new_mg)
         if new_value != old_value:
-            self.atrea.setPower(new_value)
+            # Bypass pyatrea.setPower (clamps < 12); write registers directly.
+            self.atrea.setCommand("H10708", new_value)
+            self.atrea.setCommand("H01020", new_value)
 
     async def async_turn_on(self):
         if self.air_handling_control == "Manual":
