@@ -7,9 +7,9 @@
     "@JurajNyiri"
   ],
   "requirements": [
-    "pyatrea==0.9.9"
+    "pyatrea @ git+https://github.com/jkbmat/pyatrea.git@feat/r5-series-support"
   ],
-  "version": "6.1.8",
+  "version": "6.1.9",
   "config_flow": true,
   "homeassistant": "2022.4.0"
 }

@@ -404,11 +404,9 @@ class AtreaDevice(ClimateEntity):
 
     async def async_set_fan_mode(self, fan_mode):
         fan_percent = int(re.sub("[^0-9]", "", fan_mode))
-        if fan_percent < 12:
-            fan_percent = 12
         if fan_percent > 100:
             fan_percent = 100
-        if fan_percent >= 12 and fan_percent <= 100:
+        if 0 <= fan_percent <= 100:
             if (
                 await self.hass.async_add_executor_job(self.atrea.getProgram)
                 == AtreaProgram.WEEKLY
@@ -423,7 +421,7 @@ class AtreaDevice(ClimateEntity):
             self.updatePending = False
             self.manualUpdate()
         else:
-            LOGGER.warn("Power out of range (12,100)")
+            LOGGER.warning("Power out of range (0,100)")
 
     async def async_turn_on(self):
         if self.air_handling_control == "Manual":

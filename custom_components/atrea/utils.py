@@ -21,7 +21,7 @@ def processFanModes(fan_modes):
     convertedFanMode = []
     for fan_mode in fanModesArr:
         fan_mode = fan_mode.strip().rstrip("%")
-        if not fan_mode.isnumeric() or int(fan_mode) < 12 or int(fan_mode) > 100:
+        if not fan_mode.isnumeric() or not (0 <= int(fan_mode) <= 100):
             return False
         numericArr.append(int(fan_mode.strip().rstrip("%")))
 
