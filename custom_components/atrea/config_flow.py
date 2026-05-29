@@ -1,15 +1,13 @@
 from homeassistant import config_entries
 from homeassistant.const import CONF_IP_ADDRESS, CONF_PORT, CONF_PASSWORD, CONF_NAME
 from homeassistant.core import callback
-from .utils import isAtreaUnit, processFanModes
+from .utils import isAtreaUnit
 import voluptuous as vol
 from .const import (
-    CONF_FAN_MODES,
     DOMAIN,
     LOGGER,
     CONF_PRESETS,
     ALL_PRESET_LIST,
-    DEFAULT_FAN_MODE_LIST,
 )
 from pyatrea import Atrea
 
@@ -177,16 +175,6 @@ class AtreaOptionsFlowHandler(config_entries.OptionsFlow):
         if CONF_PRESETS in self.config_entry.data:
             presets = self.config_entry.data[CONF_PRESETS]
 
-        fan_modes = DEFAULT_FAN_MODE_LIST
-        try:
-            if CONF_FAN_MODES in self.config_entry.data and processFanModes(
-                self.config_entry.data[CONF_FAN_MODES]
-            ):
-                fan_modes = self.config_entry.data[CONF_FAN_MODES]
-        except Exception as e:
-            LOGGER.debug("Incorrect fan modes: " + e)
-            # pass
-
         LOGGER.debug(
             "[%s] Opened Atrea options.", self.config_entry.data[CONF_IP_ADDRESS]
         )
@@ -203,14 +191,6 @@ class AtreaOptionsFlowHandler(config_entries.OptionsFlow):
                 else:
                     password = ""
 
-                LOGGER.debug("Loading fan_modes...")
-                if CONF_FAN_MODES in user_input:
-                    fan_modes = user_input[CONF_FAN_MODES]
-
-                LOGGER.debug("Verifying format of fan modes...")
-                if not processFanModes(fan_modes):
-                    raise Exception("Invalid fan mode format")
-
                 LOGGER.debug("Preparing save object: ip, password, name")
                 data = {
                     CONF_IP_ADDRESS: host,
@@ -218,8 +198,6 @@ class AtreaOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_PASSWORD: password,
                     CONF_NAME: name,
                 }
-                LOGGER.debug("Preparing save object: fan_modes")
-                data[CONF_FAN_MODES] = fan_modes
                 LOGGER.debug("Preparing save object: presets")
                 data[CONF_PRESETS] = {}
                 for preset in ALL_PRESET_LIST:
@@ -244,19 +222,14 @@ class AtreaOptionsFlowHandler(config_entries.OptionsFlow):
                     errors["base"] = "connection_failed"
                 elif str(e) == "Invalid authentication data":
                     errors["base"] = "invalid_auth"
-                elif str(e) == "Invalid fan mode format":
-                    errors["base"] = "invalid_fan_mode"
                 else:
                     errors["base"] = "unknown"
                     LOGGER.error(e)
 
-        LOGGER.debug("Preparing form... password, name, fan_modes, presets header")
+        LOGGER.debug("Preparing form... password, name, presets header")
         spec = {
             vol.Optional(CONF_PASSWORD, description={"suggested_value": password}): str,
             vol.Optional(CONF_NAME, description={"suggested_value": name}): str,
-            vol.Optional(
-                CONF_FAN_MODES, description={"suggested_value": fan_modes}
-            ): str,
         }
 
         LOGGER.debug("Preparing form... presets")

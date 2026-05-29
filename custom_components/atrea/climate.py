@@ -6,7 +6,12 @@ from homeassistant.util import slugify
 from homeassistant.components.climate.const import HVACAction
 
 
-from custom_components.atrea.utils import processFanModes
+from custom_components.atrea.utils import (
+    value_to_label,
+    label_to_value,
+    fan_modes_for_group,
+    transition_fan_value,
+)
 
 try:
     from homeassistant.components.climate import ClimateEntity, PLATFORM_SCHEMA
@@ -36,10 +41,9 @@ from .const import (
     MIN_TIME_BETWEEN_SCANS,
     SUPPORT_FLAGS,
     STATE_UNKNOWN,
-    CONF_FAN_MODES,
     CONF_PRESETS,
-    DEFAULT_FAN_MODE_LIST,
     ALL_PRESET_LIST,
+    PRESET_TO_MG,
     ICONS,
     HVAC_MODES,
 )
@@ -52,10 +56,6 @@ async def async_setup_entry(
     if sensor_name is None:
         sensor_name = "atrea"
 
-    fan_list = entry.data.get(CONF_FAN_MODES)
-    if fan_list is None:
-        fan_list = DEFAULT_FAN_MODE_LIST
-
     # todo: verify this works with options
     preset_list = entry.data.get(CONF_PRESETS)
     if preset_list is None:
@@ -64,7 +64,7 @@ async def async_setup_entry(
             preset_list[preset] = True
 
     hass.data[DOMAIN][entry.entry_id]["climate"] = AtreaDevice(
-        hass, entry, sensor_name, fan_list, preset_list
+        hass, entry, sensor_name, preset_list
     )
 
     async_add_entities([hass.data[DOMAIN][entry.entry_id]["climate"]])
@@ -72,7 +72,7 @@ async def async_setup_entry(
 
 class AtreaDevice(ClimateEntity):
     def __init__(
-        self, hass, entry, sensor_name, fan_list, preset_list,
+        self, hass, entry, sensor_name, preset_list,
     ):
         super().__init__()
         self.data = hass.data[DOMAIN][entry.entry_id]
@@ -106,7 +106,6 @@ class AtreaDevice(ClimateEntity):
         self._heating = -1
 
         self.updatePresetList(preset_list, False)
-        self.updateFanList(fan_list, False)
         self.manualUpdate(False)
 
     def updatePresetList(self, preset_list, updateState=True):
@@ -116,11 +115,6 @@ class AtreaDevice(ClimateEntity):
                 for i, preset_supported in self.data["supportedModes"]:
                     if preset_supported and ALL_PRESET_LIST[i] == required_preset:
                         self._preset_list.append(ALL_PRESET_LIST[i])
-        if updateState:
-            self.async_schedule_update_ha_state(True)
-
-    def updateFanList(self, fan_list, updateState=True):
-        self._fan_list = processFanModes(fan_list)
         if updateState:
             self.async_schedule_update_ha_state(True)
 
@@ -172,7 +166,7 @@ class AtreaDevice(ClimateEntity):
     def icon(self):
         if len(self._alerts) > 0:
             return "mdi:fan-alert"
-        elif self.fan_mode == "0%":
+        elif self._current_fan_mode == "0%":
             return "mdi:fan-off"
         elif self._current_preset in ICONS:
             return ICONS[self._current_preset]
@@ -266,11 +260,19 @@ class AtreaDevice(ClimateEntity):
 
     @property
     def fan_mode(self):
-        return self._current_fan_mode
+        if self._current_fan_mode is None:
+            return None
+        # defensive: handles "None%" when _requested_power is unset at startup (manualUpdate sets str(None) + "%")
+        try:
+            value = int(self._current_fan_mode.rstrip("%"))
+        except (ValueError, AttributeError):
+            return self._current_fan_mode
+        return value_to_label(value)
 
     @property
     def fan_modes(self):
-        return self._fan_list
+        mg = PRESET_TO_MG.get(self._current_preset)
+        return fan_modes_for_group(mg)
 
     @property
     def program(self):
@@ -403,7 +405,22 @@ class AtreaDevice(ClimateEntity):
             self.async_schedule_update_ha_state(True)
 
     async def async_set_fan_mode(self, fan_mode):
-        fan_percent = int(re.sub("[^0-9]", "", fan_mode))
+        fan_mode = str(fan_mode).strip()
+        # Backward-compat: raw "NN" or "NN%" still accepted (e.g. legacy automations).
+        raw_match = re.fullmatch(r"(\d+)%?", fan_mode)
+        if raw_match:
+            fan_percent = int(raw_match.group(1))
+        else:
+            current_mg = PRESET_TO_MG.get(self._current_preset)
+            fan_percent = (
+                label_to_value(fan_mode, current_mg) if current_mg is not None else None
+            )
+            if fan_percent is None:
+                LOGGER.warning(
+                    "Cannot resolve fan_mode %r for current mode group %s; ignoring",
+                    fan_mode, current_mg,
+                )
+                return
         if fan_percent > 100:
             fan_percent = 100
         if 0 <= fan_percent <= 100:
@@ -423,6 +440,28 @@ class AtreaDevice(ClimateEntity):
         else:
             LOGGER.warning("Power out of range (0,100)")
 
+    def _set_mode_with_transition(self, mode):
+        """Set preset mode AND update H10708 to preserve level intent across mode-group changes.
+
+        Atrea units do not auto-update H10708 when the preset register changes,
+        so the integration writes both together inside the same exec() batch.
+        Exotic presets (Automatic, Schedule, etc.) are left alone — only the
+        4 manual modes (OFF, VENTILATION, CIRCULATION, COMBINED) participate.
+        """
+        if mode is None:
+            return
+        self.atrea.setMode(mode)
+        new_mg = PRESET_TO_MG.get(mode)
+        if new_mg is None or self._current_fan_mode is None:
+            return
+        try:
+            old_value = int(self._current_fan_mode.rstrip("%"))
+        except (ValueError, AttributeError):
+            old_value = 0
+        new_value = transition_fan_value(old_value, new_mg)
+        if new_value != old_value:
+            self.atrea.setPower(new_value)
+
     async def async_turn_on(self):
         if self.air_handling_control == "Manual":
             self.atrea.setProgram(AtreaProgram.MANUAL)
@@ -433,7 +472,7 @@ class AtreaDevice(ClimateEntity):
         elif self.air_handling_control == "Temporary":
             self.atrea.setProgram(AtreaProgram.TEMPORARY)
             self._current_hvac_mode = HVACMode.FAN_ONLY
-        self.atrea.setMode(AtreaMode.VENTILATION)
+        self._set_mode_with_transition(AtreaMode.VENTILATION)
 
         self.updatePending = True
         await self.hass.async_add_executor_job(self.atrea.exec)
@@ -451,7 +490,7 @@ class AtreaDevice(ClimateEntity):
             self.atrea.setProgram(AtreaProgram.WEEKLY)
 
         self._current_hvac_mode = HVACMode.OFF
-        self.atrea.setMode(AtreaMode.OFF)
+        self._set_mode_with_transition(AtreaMode.OFF)
 
         self.updatePending = True
         await self.hass.async_add_executor_job(self.atrea.exec)
@@ -482,7 +521,7 @@ class AtreaDevice(ClimateEntity):
         if (
             mode != None and self._current_preset != mode
         ) or self.air_handling_control == "Schedule":
-            self.atrea.setMode(mode)
+            self._set_mode_with_transition(mode)
 
         self.updatePending = True
         await self.hass.async_add_executor_job(self.atrea.exec)
@@ -507,7 +546,7 @@ class AtreaDevice(ClimateEntity):
         ):
             self.atrea.setProgram(AtreaProgram.TEMPORARY)
         if mode != await self.hass.async_add_executor_job(self.atrea.getMode):
-            self.atrea.setMode(mode)
+            self._set_mode_with_transition(mode)
 
         self.updatePending = True
         await self.hass.async_add_executor_job(self.atrea.exec)

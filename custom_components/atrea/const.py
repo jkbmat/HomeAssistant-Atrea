@@ -18,9 +18,22 @@ SUPPORT_FLAGS = (
 DEFAULT_NAME = "Atrea"
 STATE_MANUAL = "manual"
 STATE_UNKNOWN = "unknown"
-CONF_FAN_MODES = "fan_modes"
 CONF_PRESETS = "presets"
-DEFAULT_FAN_MODE_LIST = "0,10,11,12,20,21,22,30,31,32,33,34,35,36,37,38"
+
+# Human-readable fan_mode labels for R_5 series (H10510=4 register encoding).
+# Tens digit of the raw register value = mode group; units digit = level within group.
+FAN_LEVEL_NAMES = ("Min", "Norm", "Max")  # indexed by units digit 0/1/2
+FAN_MODE_OFF_LABEL = "Off"
+
+# Maps the Atrea preset (mode group) to the tens digit of H10510=4.
+# Presets outside this mapping (Automatic, Overpressure, Schedule, etc.) are
+# considered "managed" — the fan_mode dropdown is suppressed for those.
+PRESET_TO_MG = {
+    AtreaMode.OFF: 0,
+    AtreaMode.VENTILATION: 1,
+    AtreaMode.CIRCULATION: 2,
+    AtreaMode.CIRCULATION_AND_VENTILATION: 3,
+}
 ALL_PRESET_LIST = [
     "Off",
     "Automatic",
