@@ -9,7 +9,7 @@
   "requirements": [
     "pyatrea @ git+https://github.com/jkbmat/pyatrea.git@feat/r5-series-support"
   ],
-  "version": "6.2.0",
+  "version": "6.2.1",
   "config_flow": true,
   "homeassistant": "2024.1.0"
 }

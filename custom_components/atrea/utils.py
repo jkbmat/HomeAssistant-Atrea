@@ -24,8 +24,8 @@ def value_to_label(value: int) -> str:
     if mg in (1, 2) and 0 <= units <= 2:
         return FAN_LEVEL_NAMES[units]
     if mg == 3 and 0 <= units <= 8:
-        v = FAN_LEVEL_NAMES[units // 3]
-        c = FAN_LEVEL_NAMES[units % 3]
+        c = FAN_LEVEL_NAMES[units // 3]
+        v = FAN_LEVEL_NAMES[units % 3]
         return f"{v} vent / {c} circ"
     return f"{value}%"
 
@@ -44,10 +44,11 @@ def label_to_value(label: str, current_mg: int | None) -> int | None:
     if current_mg == 3:
         match = _COMBINED_LABEL_RE.match(label)
         if match:
+            # group 1 = vent, group 2 = circ (label reads "vent / circ")
             v = match.group(1).capitalize()
             c = match.group(2).capitalize()
             if v in FAN_LEVEL_NAMES and c in FAN_LEVEL_NAMES:
-                return 30 + FAN_LEVEL_NAMES.index(v) * 3 + FAN_LEVEL_NAMES.index(c)
+                return 30 + FAN_LEVEL_NAMES.index(c) * 3 + FAN_LEVEL_NAMES.index(v)
     return None
 
 
@@ -82,12 +83,12 @@ def transition_fan_value(old_value: int, new_mg: int) -> int:
         if new_mg in (1, 2):
             return new_mg * 10 + old_units
         if new_mg == 3:
-            return 30 + old_units * 3 + old_units  # symmetric: 30, 34, 38
+            return 30 + old_units * 3 + old_units  # mirror single level onto both circ and vent (30, 34, 38)
     if old_mg == 3:
         if new_mg == 1:
-            return 10 + (old_units // 3)
+            return 10 + (old_units % 3)
         if new_mg == 2:
-            return 20 + (old_units % 3)
+            return 20 + (old_units // 3)
         if new_mg == 3:
             return old_value
     return new_mg * 10  # defensive fallback
